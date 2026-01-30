@@ -13,6 +13,7 @@ import (
 	jtypes "github.com/alexellis/jaas/pkg/types"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/swarm"
@@ -286,7 +287,7 @@ func showTasks(c *client.Client, id string, showLogs, removeService bool) (int, 
 			}
 
 			if showLogs {
-				logRequest, err := c.ServiceLogs(context.Background(), id, types.ContainerLogsOptions{
+				logRequest, err := c.ServiceLogs(context.Background(), id, container.LogsOptions{
 					Follow:     false,
 					ShowStdout: true,
 					ShowStderr: true,
