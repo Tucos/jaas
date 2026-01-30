@@ -43,7 +43,7 @@ var runCmd = &cobra.Command{
 	RunE:  runRun,
 }
 
-func runRun(cmd *cobra.Command, args []string) error {
+func runRun(*cobra.Command, []string) error {
 	err := jswarm.RunTask(taskRequest)
 	return err
 }

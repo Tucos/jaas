@@ -3,7 +3,7 @@ package swarm
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"strconv"
@@ -12,7 +12,6 @@ import (
 
 	jtypes "github.com/alexellis/jaas/pkg/types"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
@@ -44,17 +43,15 @@ func RunTask(taskRequest jtypes.TaskRequest) error {
 
 	var c *client.Client
 	var err error
-	c, err = client.NewEnvClient()
+	c, err = client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
-
 		return fmt.Errorf("is the Docker Daemon running? Error: %s", err.Error())
 	}
 
 	// Check that experimental mode is enabled on the daemon, fall back to no logging if not
 	versionInfo, versionErr := c.ServerVersion(context.Background())
 	if versionErr != nil {
-		log.Fatal("Is the Docker Daemon running?")
-
+		log.Fatalf("Is the Docker Daemon running? Error: %s", err.Error())
 		return versionErr
 	}
 
@@ -71,12 +68,12 @@ func RunTask(taskRequest jtypes.TaskRequest) error {
 	spec := makeSpec(taskRequest.Image, taskRequest.EnvVars)
 	if len(taskRequest.Networks) > 0 {
 		nets := []swarm.NetworkAttachmentConfig{
-			swarm.NetworkAttachmentConfig{Target: taskRequest.Networks[0]},
+			{Target: taskRequest.Networks[0]},
 		}
-		spec.Networks = nets
+		spec.TaskTemplate.Networks = nets
 	}
 
-	createOptions := types.ServiceCreateOptions{}
+	createOptions := swarm.ServiceCreateOptions{}
 
 	if len(taskRequest.RegistryAuth) > 0 {
 		createOptions.EncodedRegistryAuth = taskRequest.RegistryAuth
@@ -97,7 +94,7 @@ func RunTask(taskRequest jtypes.TaskRequest) error {
 		for _, file := range taskRequest.EnvFiles {
 			envs, err := readEnvs(file)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s", err)
+				_, _ = fmt.Fprintf(os.Stderr, "%s", err)
 				os.Exit(1)
 			}
 
@@ -111,7 +108,7 @@ func RunTask(taskRequest jtypes.TaskRequest) error {
 	for _, bindMount := range taskRequest.Mounts {
 		parts := strings.Split(bindMount, "=")
 		if len(parts) < 2 || len(parts) > 2 {
-			fmt.Fprintf(os.Stderr, "Bind-mounts must be specified as: src=dest, i.e. --mount /home/alex/tmp/=/tmp/\n")
+			_, _ = fmt.Fprintf(os.Stderr, "Bind-mounts must be specified as: src=dest, i.e. --mount /home/alex/tmp/=/tmp/\n")
 			os.Exit(1)
 		}
 
@@ -125,7 +122,7 @@ func RunTask(taskRequest jtypes.TaskRequest) error {
 		}
 	}
 
-	secretList, err := c.SecretList(context.Background(), types.SecretListOptions{})
+	secretList, err := c.SecretList(context.Background(), swarm.SecretListOptions{})
 
 	spec.TaskTemplate.ContainerSpec.Secrets = []*swarm.SecretReference{}
 	for _, serviceSecret := range taskRequest.Secrets {
@@ -137,7 +134,7 @@ func RunTask(taskRequest jtypes.TaskRequest) error {
 			}
 		}
 		if secretID == "" {
-			fmt.Fprintf(os.Stderr, "No existing secret has name that matches %s\n", serviceSecret)
+			_, _ = fmt.Fprintf(os.Stderr, "No existing secret has name that matches %s\n", serviceSecret)
 			os.Exit(1)
 		}
 
@@ -156,7 +153,7 @@ func RunTask(taskRequest jtypes.TaskRequest) error {
 	}
 
 	createResponse, _ := c.ServiceCreate(context.Background(), spec, createOptions)
-	opts := types.ServiceInspectOptions{InsertDefaults: true}
+	opts := swarm.ServiceInspectOptions{InsertDefaults: true}
 
 	service, _, _ := c.ServiceInspectWithRaw(context.Background(), createResponse.ID, opts)
 	fmt.Printf("Service created: %s (%s)\n", service.Spec.Name, createResponse.ID)
@@ -167,12 +164,12 @@ func RunTask(taskRequest jtypes.TaskRequest) error {
 }
 
 func makeSpec(image string, envVars []string) swarm.ServiceSpec {
-	max := uint64(1)
+	maxAttempts := uint64(1)
 
 	spec := swarm.ServiceSpec{
 		TaskTemplate: swarm.TaskSpec{
 			RestartPolicy: &swarm.RestartPolicy{
-				MaxAttempts: &max,
+				MaxAttempts: &maxAttempts,
 				Condition:   swarm.RestartPolicyConditionNone,
 			},
 			ContainerSpec: &swarm.ContainerSpec{
@@ -188,7 +185,7 @@ func readEnvs(file string) ([]string, error) {
 	var err error
 	var envs []string
 
-	data, readErr := ioutil.ReadFile(file)
+	data, readErr := os.ReadFile(file)
 	if readErr != nil {
 		return envs, readErr
 	}
@@ -215,7 +212,7 @@ func pollTask(c *client.Client, id string, timeout time.Duration, showlogs, remo
 
 	exitCode := swarmError
 
-	opts := types.ServiceListOptions{
+	opts := swarm.ServiceListOptions{
 		Filters: svcFilters,
 	}
 
@@ -248,7 +245,7 @@ func showTasks(c *client.Client, id string, showLogs, removeService bool) (int, 
 	filters1 := filters.NewArgs()
 	filters1.Add("service", id)
 
-	tasks, _ := c.TaskList(context.Background(), types.TaskListOptions{
+	tasks, _ := c.TaskList(context.Background(), swarm.TaskListOptions{
 		Filters: filters1,
 	})
 
@@ -287,31 +284,13 @@ func showTasks(c *client.Client, id string, showLogs, removeService bool) (int, 
 			}
 
 			if showLogs {
-				logRequest, err := c.ServiceLogs(context.Background(), id, container.LogsOptions{
-					Follow:     false,
-					ShowStdout: true,
-					ShowStderr: true,
-					Timestamps: true,
-					Details:    false,
-					Tail:       "all",
-				})
-
-				if err != nil {
-					fmt.Printf("Unable to pull service logs.\nError: %s\n", err)
-				} else {
-					defer logRequest.Close()
-
-					//	, ShowStderr: true, ShowStdout: true})
-					res, _ := ioutil.ReadAll(logRequest)
-
-					fmt.Println(string(res[:]))
-				}
+				showTaskLogs(c, id)
 			}
 
 			if removeService {
 				fmt.Println("Removing service...")
 				if err := c.ServiceRemove(context.Background(), id); err != nil {
-					fmt.Fprintln(os.Stderr, err)
+					_, _ = fmt.Fprintln(os.Stderr, err)
 				}
 			}
 
@@ -322,6 +301,27 @@ func showTasks(c *client.Client, id string, showLogs, removeService bool) (int, 
 		}
 	}
 	return exitCode, done
+}
+
+func showTaskLogs(c *client.Client, id string) {
+	logRequest, err := c.ServiceLogs(context.Background(), id, container.LogsOptions{
+		Follow:     false,
+		ShowStdout: true,
+		ShowStderr: true,
+		Timestamps: true,
+		Details:    false,
+		Tail:       "all",
+	})
+
+	if err != nil {
+		fmt.Printf("Unable to pull service logs.\nError: %s\n", err)
+	} else {
+		defer func(logRequest io.ReadCloser) {
+			_ = logRequest.Close()
+		}(logRequest)
+		res, _ := io.ReadAll(logRequest)
+		fmt.Println(string(res[:]))
+	}
 }
 
 func validate(taskRequest jtypes.TaskRequest) error {

@@ -28,9 +28,9 @@ Run ad-hoc commands`,
 	RunE: executeRoot,
 }
 
-func executeRoot(cmd *cobra.Command, args []string) error {
+func executeRoot(cmd *cobra.Command, _ []string) error {
 	fmt.Printf(figletStr)
-	cmd.Help()
+	_ = cmd.Help()
 
 	return nil
 }

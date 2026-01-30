@@ -35,7 +35,7 @@ This currently consists of the GitSHA from which the client was built.
 	Run: runVersion,
 }
 
-func runVersion(cmd *cobra.Command, args []string) {
+func runVersion(*cobra.Command, []string) {
 	if shortVersion {
 		fmt.Println(version.BuildVersion())
 	} else {
