@@ -1,6 +1,8 @@
-## Notice: archived
+## Notice
 
-This project is archived, which means there are no plans for further development. If your company is using this in production, contact OpenFaaS Ltd for a commercial license and support. contact@openfaas.com
+The upstream project for jaas is archived.
+I have updated the code to work with the current version of docker.
+I do not intend to actively maintain this; beyond keeping it running for my own purposes.
 
 # Jobs as a Service (JaaS)
 
